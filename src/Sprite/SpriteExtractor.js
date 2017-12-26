@@ -1,41 +1,8 @@
 import Sprite from './Sprite';
 import _ from 'lodash';
-
-export class Pixel {
-    constructor(r, g, b, a) {
-        this._red = r;
-        this._green = g;
-        this._blue = b;
-        this._alpha = a;
-    }
-
-    getRed() {
-        return this._red;
-    }
-
-    getGreen() {
-        return this._green;
-    }
-
-    getBlue() {
-        return this._blue;
-    }
-
-    getAlpha() {
-        return this._alpha;
-    }
-
-    getColor() {
-        return (("0" + this.getRed().toString(16)).slice(-2) +
-            ("0" + this.getGreen().toString(16)).slice(-2) +
-            ("0" + this.getBlue().toString(16)).slice(-2)).toUpperCase();
-    }
-
-    getColorAlpha() {
-        return this.getColor() + ("0" + this.getAlpha().toString(16)).slice(-2).toUpperCase();
-    }
-
-}
+import ImageManipulator from "./ImageManipulator";
+import Rect from "../Geometry/Rect";
+import Point from "../Geometry/Point";
 
 export default class SpriteExtractor {
     constructor(image) {
@@ -43,121 +10,147 @@ export default class SpriteExtractor {
             throw `SpriteExtractor requires instance of Image, ${typeof image} given`;
         }
 
-        /**
-         * @type {Image}
-         */
-        this.image = image;
+	    /**
+	     * @type {Image}
+	     */
+	    this.image = image;
 
-        /**
-         * @type {HTMLCanvasElement}
-         */
-        this.canvas = document.createElement('canvas');
-        this.canvas.width = image.width;
-        this.canvas.height = image.height;
+        this.manipulator = new ImageManipulator(image);
 
-        /**
-         * @type {CanvasRenderingContext2D|WebGLRenderingContext}
-         */
-        this.context2D = this.canvas.getContext('2d');
-    }
-
-    init()
-    {
-        this.context2D.drawImage(this.image, 0, 0);
-
-        /**
-         * @type {ImageData}
-         */
-        this.imageData = this.context2D.getImageData(0, 0, this.image.width, this.image.height);
     }
 
     /**
      * @return Sprite[]
      */
     extract() {
-        this.init();
-
         /**
          * @type {Pixel[][]}
          */
-        this.pixels = this._resolvePixels();
-        this.getColorCount();
+        this.pixels = this.manipulator.getPixels();
+        this.manipulator.getColorCount();
 
-
-
-        this._iteratePixels((x, y, pixel) => {
-
-        })
-    }
-
-    _iteratePixels(callback) {
-        for (let x = 0; x < this.pixels.length; x++) {
-            for (let y = 0; y < this.pixels[x].length; y++) {
-                callback(x, y, this.pixels[x][y]);
-            }
+        for(let x = 0; x < this.pixels.length; x++) {
+        	for(let y = 0; y < this.pixels[x].length; y++) {
+        		let sprite;
+        		if (sprite = this.resolveSprite(new Point(x, y))) {
+        			console.log(sprite);
+        			debugger;
+		        }
+	        }
         }
     }
 
-    getColorCount()
-    {
-        if (typeof this.pixelCountByColor === 'undefined') {
-            this.pixelCountByColor = {};
+	getBackgroundColor()
+	{
+		if (typeof this.backgroundColor === 'undefined') {
+			this.backgroundColor = _.maxBy(Object.keys(this.manipulator.getColorCount()), (o) => { return this.manipulator.getColorCount()[o]; });
+		}
 
-            this._iteratePixels((x, y, pixel) => {
-                if (typeof this.pixelCountByColor[pixel.getColor()] === 'undefined') {
-                    this.pixelCountByColor[pixel.getColor()] = 1;
-                    return;
-                }
+		return this.backgroundColor;
+	}
 
-                this.pixelCountByColor[pixel.getColor()]++;
-            });
-        }
+	/**
+	 * @param pixel {Pixel}
+	 */
+	isBackgroundPixel(pixel)
+	{
+		return this.getBackgroundColor() === pixel.getColor();
+	}
 
-        return this.pixelCountByColor;
-    }
+	/**
+	 * @param point {Point}
+	 * @returns {Rect}
+	 */
+	resolveSprite(point)
+	{
+		let originPixel = this.getPixel(point);
 
-    getBackgroundColor()
-    {
-        return _.max(Object.keys(this.getColorCount()), function (o) { return this.getColorCount[o]; });
-    }
+		if (!originPixel) return;
+		if (this.isBackgroundPixel(originPixel)) return;
 
-    /**
-     * @return Pixel[][]
-     * @private
-     */
-    _resolvePixels() {
-        let pixels = [];
-        for (let x = 0; x < this.imageData.width; x++) {
-            pixels[x] = [];
-            for (let y = 0; y < this.imageData.height; y++) {
-                pixels[x][y] = this._getPixel(x, y);
-            }
-        }
+		let spriteBounds = new Rect();
 
-        return pixels;
-    }
+		debugger;
 
-    /**
-     * @param x int
-     * @param y int
-     * @return Pixel
-     * @private
-     */
-    _getPixel(x, y) {
-        if (x < 0 || x > this.imageData.width || y < 0 || y > this.imageData.height) {
-            throw `Pixel position out of bounds`;
-        }
+		/**
+		 * @type {Point[]}
+		 */
+		let queue = [];
 
-        let red = this.imageData.data[((y * (this.imageData.width * 4)) + (x * 4))];
-        let green = this.imageData.data[((y * (this.imageData.width * 4)) + (x * 4)) + 1];
-        let blue = this.imageData.data[((y * (this.imageData.width * 4)) + (x * 4)) + 2];
-        let alpha = this.imageData.data[((y * (this.imageData.width * 4)) + (x * 4)) + 3];
+		queue.push(point);
 
-        return new Pixel(red, green, blue, alpha);
-    }
+		let i = 0;
+		while (i < queue.length) {
+			let west = queue[i].offset(-1, 0);
+			let east = queue[i].offset(1, 0);
 
-    getPixels()
-    {
-        return this.pixels || [];
-    }
+			while (west.isWithinBounds(this.getImageBounds()) && !this.isBackgroundPixel(this.getPixel(west))) {
+				west = west.offset(-1, 0);
+			}
+
+			while (east.isWithinBounds(this.getImageBounds()) && !this.isBackgroundPixel(this.getPixel(east))) {
+				east = east.offset(1, 0);
+			}
+
+			if (!spriteBounds.left || west.getX() < spriteBounds.left) {
+				spriteBounds.left = west.getX();
+			}
+
+			if (!spriteBounds.right || east.getX() > spriteBounds.right) {
+				spriteBounds.right = east.getX();
+			}
+
+			for (let x = west.getX(); x < east.getY(); x++) {
+				let node = new Point(x, point.getY());
+				let north = node.offset(0, -1);
+
+				if (north.isWithinBounds(this.getImageBounds()) && !this.isBackgroundPixel(this.getPixel(north))) {
+					queue.push(north);
+
+					if (!spriteBounds.top || north.getY() < spriteBounds.top) {
+						spriteBounds.top = north.getY();
+					}
+				}
+
+				let south = node.offset(0, 1);
+				if (south.isWithinBounds(this.getImageBounds()) && !this.isBackgroundPixel(this.getPixel(south))) {
+					queue.push(south);
+
+					if (!spriteBounds.bottom || south.getY() > spriteBounds.bottom) {
+						spriteBounds.bottom = south.getY();
+					}
+				}
+			}
+
+			i++;
+		}
+
+		return spriteBounds;
+	}
+
+	/**
+	 * @return Rect
+	 */
+	getImageBounds()
+	{
+		if (typeof this.imageBounds === 'undefined')
+		{
+			this.imageBounds = new Rect();
+			this.imageBounds.left = 0, this.imageBounds.top = 0, this.imageBounds.right = this.image.width, this.imageBounds.bottom = this.image.height;
+		}
+
+		return this.imageBounds;
+	}
+
+	/**
+	 * @param point {Point}
+	 */
+	getPixel(point)
+	{
+		if (point.isWithinBounds(this.getImageBounds())) {
+			return this.pixels[point.getX()][point.getY()];
+		}
+
+		return null;
+	}
 }

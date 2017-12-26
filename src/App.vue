@@ -32,6 +32,7 @@
             let image = new Image();
 
             image.onload = () => {
+
                 this.spriteExtractor = new SpriteExtractor(image);
                 this.spriteExtractor.extract();
 
